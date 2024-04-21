@@ -123,10 +123,7 @@ class Worker(worker_grpc.WorkerServicer):
             with open(output_file, "w") as f:
                 f.write(f"{key} {new_centroid}\n")
 
-        cent_list = []
-        for key, new_centroid in final_centroids.items():
-            cent_list.append(new_centroid)
-        return worker.status(code=200, msg=str(cent_list))
+        return worker.status(code=200, msg=str(final_centroids))
 
 def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))

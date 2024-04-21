@@ -6,6 +6,7 @@ from concurrent import futures
 import numpy as np
 import threading
 import pyautogui
+from collections import defaultdict
 
 import driver_pb2 as driver
 import driver_pb2_grpc as driver_grpc
@@ -112,18 +113,21 @@ class Driver(driver_grpc.DriverServicer):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
             start_time = time.time()
             if i != 0:
-                self.centroids = []
-                for cluster in range(num_clusters):
-                    x = 0
-                    y = 0
-                    for reducer in range(reducers):
-                        x += self.updates[reducer][cluster][0]
-                        y += self.updates[reducer][cluster][1]
-                    x /= reducers
-                    y /= reducers
-                    self.centroids.append([x, y])
+                sums = defaultdict(list)
+                counts = defaultdict(int)
+                for d in self.updates:
+                    for key, value in d.items():
+                        sums[key].append(value)
+                        counts[key] += 1
+
+                means = {}
+                for key, value in sums.items():
+                    means[key] = [sum(val)/counts[key] for val in zip(*value)]
+                
                 self.updates = []
+                self.centroids = list(means.values())
                 self.centroids = np.array(self.centroids)
+
                 print(f"[!] [DRIVER] [KMEANS] Updated centroids: {self.centroids}")
                 with open("centroids.txt", "w") as f:
                     f.write(str(self.centroids))
