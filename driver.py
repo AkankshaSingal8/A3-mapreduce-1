@@ -95,6 +95,7 @@ class Driver(driver_grpc.DriverServicer):
         for port in ports[mappers:]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
+            time.sleep(1)
             channel = grpc.insecure_channel(f'localhost:{port}')
             print(f"[*] [DRIVER] [CONFIG] Connecting to reducer with port: {port}...")
             try:
@@ -109,6 +110,7 @@ class Driver(driver_grpc.DriverServicer):
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
         initialize_centroids(num_clusters)
 
+        same = 0
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
             start_time = time.time()
@@ -125,9 +127,16 @@ class Driver(driver_grpc.DriverServicer):
                     means[key] = [sum(val)/counts[key] for val in zip(*value)]
                 
                 self.updates = []
-                self.centroids = list(means.values())
-                self.centroids = np.array(self.centroids)
-
+                temp_centroids = list(means.values())
+                temp_centroids = np.array(temp_centroids)
+                
+                if np.array_equal(self.centroids, temp_centroids):
+                    same += 1
+                if np.array_equal(self.centroids, temp_centroids) and same == 2:
+                    print(f"[!] [DRIVER] [KMEANS] Centroids converged. Terminating the algorithm.")
+                    break
+                
+                self.centroids = temp_centroids
                 print(f"[!] [DRIVER] [KMEANS] Updated centroids: {self.centroids}")
                 with open("centroids.txt", "w") as f:
                     f.write(str(self.centroids))
