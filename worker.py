@@ -2,11 +2,9 @@ import os
 import sys
 import grpc
 import time
-from collections import defaultdict
 import numpy as np
 from concurrent import futures
 import threading
-import re
 
 import worker_pb2 as worker
 import worker_pb2_grpc as worker_grpc

@@ -1,4 +1,3 @@
-import os
 import sys
 import grpc
 import glob
@@ -6,7 +5,6 @@ import time
 from concurrent import futures
 import numpy as np
 import threading
-import subprocess
 import pyautogui
 
 import driver_pb2 as driver
@@ -107,7 +105,6 @@ class Driver(driver_grpc.DriverServicer):
 
 
         print("[!] [DRIVER] [CONFIG]  Registered: %i map operations and %i reduce operations" % (len(files), reducers))
-
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
         initialize_centroids(num_clusters, dimension)
 

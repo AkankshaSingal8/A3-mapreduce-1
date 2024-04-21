@@ -1,15 +1,11 @@
 import sys
-import os
 import grpc
 
 import driver_pb2 as driver
 import driver_pb2_grpc as driver_grpc
 
 def run():
-    pid = os.getpid()
-    
     channel = grpc.insecure_channel('localhost:4000')
-
     try:
         print("[*] Connecting to the server...")
         grpc.channel_ready_future(channel).result(timeout=10)
@@ -27,5 +23,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-
-# m = reducers
