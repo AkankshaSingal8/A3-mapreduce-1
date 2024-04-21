@@ -14,6 +14,7 @@ message empty {} // empty message
 
 message kmeansReduce {
     int32 id = 1; // Reduce id
+    int32 mapNums = 2;
 }
 
 message status {
@@ -25,7 +26,8 @@ message kmeansInput {
     string path = 1; // File path
     int32 mapID = 2; // ID of map opperation
     int32 numClusters = 3; //
-    repeated int32 centroids = 4;
+    repeated float centroids = 4;
+    int32 numReducers = 5; //
 }
 
 message driverPort {

@@ -5,8 +5,6 @@ import grpc
 import driver_pb2 as driver
 import driver_pb2_grpc as driver_grpc
 
-import time
-
 def run():
     pid = os.getpid()
     
@@ -22,10 +20,12 @@ def run():
         arg = sys.argv
         
         stub = driver_grpc.DriverStub(channel)
-        ports = '|'.join(arg[5:])  # Assuming the first argument is the script name
+        ports = '|'.join(arg[5:])
         req = driver.launchData(dirPath=arg[1], m=int(arg[2]), ports=ports, numClusters=int(arg[3]), dimension=int(arg[4]))
         response = stub.launchDriver(req)
         print("[!] Operation terminated with code: %i and message: %s"%(response.code, response.msg))
 
 if __name__ == "__main__":
     run()
+
+# m = reducers

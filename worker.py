@@ -1,12 +1,12 @@
 import os
 import sys
 import grpc
-import glob
 import time
 from collections import defaultdict
 import numpy as np
 from concurrent import futures
 import threading
+import re
 
 import worker_pb2 as worker
 import worker_pb2_grpc as worker_grpc
@@ -25,72 +25,110 @@ class Worker(worker_grpc.WorkerServicer):
     def die(self, request, context):
         return worker.empty()
 
+    def partition(self, clusters, num_reducers, map_id):
+        print("[!] [MAPPER] Partitioning clusters...")
+        map_dir = f"map_output_{map_id}"
+        os.makedirs(map_dir, exist_ok=True)
+        
+        partitions = {i: [] for i in range(num_reducers)}
+        partition_counts = {i: 0 for i in range(num_reducers)}
+
+        total_points = sum(len(cluster_data) for cluster_data in clusters.values())
+        points_per_partition = total_points // num_reducers
+        partition_id = 0
+
+        for cluster_id, cluster_data in clusters.items():
+            for point in cluster_data:
+                val = str(cluster_id) + " " + str(point[1][0]) + " " + str(point[1][1])
+                partitions[partition_id].append(val)
+                partition_counts[partition_id] += 1
+
+                if partition_counts[partition_id] >= points_per_partition:
+                    partition_id = (partition_id + 1) % num_reducers
+
+        for partition_id, partition_data in partitions.items():
+            partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
+            with open(partition_file, "w") as f:
+                for value in partition_data:
+                    f.write(f"{value}\n")
+
+        return partitions
+
     def map(self, request, context):
         file = request.path
         num_clusters = request.numClusters
+        num_reducers = request.numReducers
         centroids = request.centroids
+        centroids = np.array(centroids).reshape((num_clusters, -1))
         
-        print("[!] [WORKER] K-means Map operation: file='%s', num_clusters=%d" % (file, num_clusters))
+        print("[!] [MAPPER] K-means Map operation: file='%s', num_clusters=%d" % (file, num_clusters))
 
-        # Create a directory for the current map operation
-        map_dir = f"map_output_{request.mapID}"
-        os.makedirs(map_dir, exist_ok=True)
-
-        # Read data points from file
+        data_points = []
         with open(file, "r") as f:
-            lines = f.readlines()
-            data_points = [list(map(float, line.strip().split())) for line in lines]
+            for line in f:
+                x, y = map(float, line.strip().split(','))
+                data_points.append([x, y])
 
-        # Find nearest centroid for each data point
-        results = defaultdict(list)
+        clusters = {i: [] for i in range(num_clusters)}
+
         for point in data_points:
-            min_distance = sys.maxsize
-            nearest_centroid = None
-            for i, centroid in enumerate(centroids):
-                distance = np.linalg.norm(np.array(point) - centroid)
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest_centroid = i
-            results[nearest_centroid].append(point)
+            distances = [np.linalg.norm(np.array(point) - np.array(c)) for c in centroids]
+            nearest_centroid = np.argmin(distances)
+            clusters[nearest_centroid].append([list(centroids[nearest_centroid]), point])
 
-        # Write results into a text file within the directory
-        for centroid, points in results.items():
-            output_file = os.path.join(map_dir, f"output_{centroid}.txt")
-            with open(output_file, "w") as f:
-                for point in points:
-                    f.write(" ".join(str(coord) for coord in point) + "\n")
-
-        # # Emit intermediate key-value pairs
-        # for centroid, points in results.items():
-        #     yield worker.kmeansIntermediate(centroid=centroid, points=points)
-        
+        self.partition(clusters, num_reducers, request.mapID)
         return worker.status(code=200, msg="OK")
 
-    def reduce(self, request_iterator, context):
-        centroid = request_iterator[0].centroid
-        points = [point for item in request_iterator for point in item.points]
-        
-        print("[!] [WORKER] K-means Reduce operation: centroid=%d" % centroid)
+    def shuffle_and_sort(self, file_id, num_mappers):
+        sorted_partitions = {}
 
-        # Compute new centroid
-        if points:
-            new_centroid = np.mean(points, axis=0)
-        else:
-            new_centroid = np.zeros(len(points[0]))  # Initialize to zero if no points
+        for i in range(num_mappers):
+            partition_file = os.path.join(f"map_output_{i}", f"partition_{file_id}.txt")
+            with open(partition_file, "r") as f:
+                for line in f:
+                    k, p1, p2 = line.strip().split(" ")
+                    if k not in sorted_partitions:
+                        sorted_partitions[k] = []
+                    sorted_partitions[k].append([float(p1), float(p2)])
 
-        # Create a directory for the current reduce operation
-        reduce_dir = f"reduce_output_{centroid}"
+        return sorted_partitions
+
+    def calculate_centroid(self, clusters):
+        final_centroids = {}
+        for key, points in clusters.items():
+            num_points = len(points)
+            if num_points == 0:
+                return None
+            centroid = [0] * len(points[0])
+            for point in points:
+                for i in range(len(point)):
+                    centroid[i] += point[i]
+            centroid = [x / num_points for x in centroid]
+            final_centroids[key] = centroid
+        print("[!] [REDUCER] New centroids: ", final_centroids)
+        return final_centroids
+
+    def reduce(self, request, context):
+        print("[!] [REDUCER] K-means Reduce operation")
+        rid = request.id
+        numMaps = request.mapNums
+
+        print("[!] [REDUCER] Shuffling and Sorting...")
+        sorted_part = self.shuffle_and_sort(rid, numMaps)
+        final_centroids = self.calculate_centroid(sorted_part)
+
+        reduce_dir = f"reduce_output_{rid}"
         os.makedirs(reduce_dir, exist_ok=True)
 
-        # Write results into a text file within the directory
-        output_file = os.path.join(reduce_dir, f"output_{centroid}.txt")
-        with open(output_file, "w") as f:
-            for point in new_centroid:
-                f.write(str(point) + "\n")
+        for key, new_centroid in final_centroids.items():
+            output_file = os.path.join(reduce_dir, f"output_{key}.txt")
+            with open(output_file, "w") as f:
+                f.write(f"{key} {new_centroid}\n")
 
-        # Emit new centroid
-        # yield worker.kmeansIntermediate(centroid=centroid, points=[list(new_centroid)])
-        return worker.status(code=200, msg="OK")
+        cent_list = []
+        for key, new_centroid in final_centroids.items():
+            cent_list.append(new_centroid)
+        return worker.status(code=200, msg=str(cent_list))
 
 def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
