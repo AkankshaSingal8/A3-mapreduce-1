@@ -16,8 +16,8 @@ def run():
         arg = sys.argv
         
         stub = driver_grpc.DriverStub(channel)
-        ports = '|'.join(arg[5:])
-        req = driver.launchData(dirPath=arg[1], m=int(arg[2]), ports=ports, numClusters=int(arg[3]), dimension=int(arg[4]))
+        ports = '|'.join(arg[6:])
+        req = driver.launchData(dirPath=arg[1], numMappers=int(arg[2]), numReducers=int(arg[3]), ports=ports, numClusters=int(arg[4]), iters=int(arg[5]))
         response = stub.launchDriver(req)
         print("[!] Operation terminated with code: %i and message: %s"%(response.code, response.msg))
 

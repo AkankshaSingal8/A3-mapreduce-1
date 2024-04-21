@@ -17,13 +17,13 @@ class Driver(driver_grpc.DriverServicer):
         super().__init__()
         self.mappers = {}
         self.reducers = {}
-        self.iterations = 5
+        self.iterations = 0
         self.centroids = []
         self.treatFiles = dict()
         self.updates = []
     
     def launchDriver(self, request, context):
-        def initialize_centroids(num_clusters, dimension):
+        def initialize_centroids(num_clusters):
             with open("./points/p1.txt", 'r') as file:
                 lines = file.readlines()
             for line in lines[:num_clusters]:
@@ -67,9 +67,10 @@ class Driver(driver_grpc.DriverServicer):
         
         print("[!] [DRIVER] [CONFIG] Driver is launching")
         files = glob.glob(request.dirPath + "/*.txt")
-        reducers = request.m
+        reducers = request.numReducers
+        mappers = request.numMappers
         num_clusters = request.numClusters
-        dimension = request.dimension
+        self.iterations = request.iters
 
         ports = [int(port) for port in request.ports.split('|')]
         print("[!] [DRIVER] [CONFIG] Requested %i workers with the following ports: [%s]." % (len(ports), ' '.join(str(s) for s in ports)))
@@ -77,7 +78,7 @@ class Driver(driver_grpc.DriverServicer):
         for file in files:
             self.treatFiles[file] = 0
 
-        for port in ports[:len(files)]:
+        for port in ports[:mappers]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
@@ -90,7 +91,7 @@ class Driver(driver_grpc.DriverServicer):
             self.mappers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
             print(f"[!] [DRIVER] [CONFIG] Connection with mapper '{port}' established.")
         
-        for port in ports[len(files):]:
+        for port in ports[mappers:]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
@@ -103,10 +104,9 @@ class Driver(driver_grpc.DriverServicer):
             self.reducers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
             print(f"[!] [DRIVER] [CONFIG] Connection with reducer '{port}' established.")
 
-
-        print("[!] [DRIVER] [CONFIG]  Registered: %i map operations and %i reduce operations" % (len(files), reducers))
+        print("[!] [DRIVER] [CONFIG]  Registered: %i map operations and %i reduce operations" % (mappers, reducers))
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
-        initialize_centroids(num_clusters, dimension)
+        initialize_centroids(num_clusters)
 
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
