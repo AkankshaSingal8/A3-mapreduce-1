@@ -17,7 +17,8 @@ message status {
 message launchData {
     string dirPath = 1;
     int32 m = 2;
-    string ports = 3;
-    int32 numClusters = 4;
-    int32 dimension = 5;
+    int32 n = 3;
+    string ports = 4;
+    int32 numClusters = 5;
+    int32 iterations = 6;
 }

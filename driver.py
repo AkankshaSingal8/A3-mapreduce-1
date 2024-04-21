@@ -23,7 +23,7 @@ class Driver(driver_grpc.DriverServicer):
         self.updates = []
     
     def launchDriver(self, request, context):
-        def initialize_centroids(num_clusters, dimension):
+        def initialize_centroids(num_clusters):
             with open("./points/p1.txt", 'r') as file:
                 lines = file.readlines()
             for line in lines[:num_clusters]:
@@ -67,30 +67,31 @@ class Driver(driver_grpc.DriverServicer):
         
         print("[!] [DRIVER] [CONFIG] Driver is launching")
         files = glob.glob(request.dirPath + "/*.txt")
-        reducers = request.m
+        mappers = request.m
+        reducers = request.n
         num_clusters = request.numClusters
-        dimension = request.dimension
+        iterations = request.iterations
 
-        ports = [int(port) for port in request.ports.split('|')]
+        ports = [int(port) for port in request.ports.split()]
         print("[!] [DRIVER] [CONFIG] Requested %i workers with the following ports: [%s]." % (len(ports), ' '.join(str(s) for s in ports)))
         
         for file in files:
             self.treatFiles[file] = 0
 
-        for port in ports[:len(files)]:
+        for port in ports[:mappers]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
             print(f"[*] [DRIVER] [CONFIG] Connecting to mapper with port: {port}...")
             try:
-                grpc.channel_ready_future(channel).result(timeout=10)
+                grpc.channel_ready_future(channel).result(timeout=3)
             except grpc.FutureTimeoutError:
                 sys.exit(f"[-] [ERROR] Could not connect to mapper '{port}'.")
             self.mappers[port] = [0, worker_grpc.WorkerStub(channel)]
             self.mappers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
             print(f"[!] [DRIVER] [CONFIG] Connection with mapper '{port}' established.")
         
-        for port in ports[len(files):]:
+        for port in ports[mappers:]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
@@ -106,7 +107,7 @@ class Driver(driver_grpc.DriverServicer):
 
         print("[!] [DRIVER] [CONFIG]  Registered: %i map operations and %i reduce operations" % (len(files), reducers))
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
-        initialize_centroids(num_clusters, dimension)
+        initialize_centroids(num_clusters)
 
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
@@ -165,10 +166,19 @@ class Driver(driver_grpc.DriverServicer):
         return driver.status(code=200, msg="OK")
 
 
+import socket
+from contextlib import closing
+
+def find_free_port():
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
 def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     driver_grpc.add_DriverServicer_to_server(Driver(), server)
-    port = sys.argv[1]
+    port = 4000             # hardcoded
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()
     print("Driver running on 127.0.0.1:%s" % (port))
