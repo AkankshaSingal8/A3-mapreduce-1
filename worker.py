@@ -16,7 +16,7 @@ class Worker(worker_grpc.WorkerServicer):
     def __init__(self):
         super().__init__()
         self.driver_port = '4000'
-        self.patition_dict = {}
+        self.partition_dict = {}
         self.number_mappers = None
         self.number_reducers = None
         self.mapper_ports = []
@@ -30,6 +30,15 @@ class Worker(worker_grpc.WorkerServicer):
 
     def die(self, request, context):
         return worker.empty()
+
+    def sendPartitionedData(self, request, context):
+        print("Sending data")
+        reducer_id = request.reducerID
+        print("Reducer ID", reducer_id, "Partition dict", self.partition_dict)
+        data = self.partition_dict[reducer_id]
+        mapper_data = worker.MapperDataList(data=data)
+        print("Data sent")
+        return mapper_data
 
     def partition(self, clusters, num_reducers, map_id):
         print("[!] [MAPPER] Partitioning clusters...")
@@ -51,9 +60,10 @@ class Worker(worker_grpc.WorkerServicer):
 
                 if partition_counts[partition_id] >= points_per_partition:
                     partition_id = (partition_id + 1) % num_reducers
-                if partition_id not in self.patition_dict:
-                    self.patition_dict[partition_id] = []
-                self.patition_dict[partition_id].append(val)
+                
+                if partition_id not in self.partition_dict:
+                    self.partition_dict[partition_id] = []
+                self.partition_dict[partition_id].append(val)
 
         for partition_id, partition_data in partitions.items():
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
@@ -90,53 +100,39 @@ class Worker(worker_grpc.WorkerServicer):
         self.partition(clusters, num_reducers, request.mapID)
         return worker.status(code=200, msg="OK")
 
-    # def shuffle_and_sort(self, file_id, num_mappers):
-    #     print("Entering function")
-    #     sorted_partitions = {}
-        
-    #     for i in range(1, num_mappers + 1):
-    #         port = 4000 + i
-    #         channel = None
-    #         try:
-    #             print(f"Connecting to mapper on port: {port}")
-    #             channel = grpc.insecure_channel(f'localhost:{port}')
-    #             stub = worker_grpc.WorkerStub(channel)
-    #             reducer_id = int(file_id)
-    #             response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=reducer_id))
-    #             print(f"Connection established with mapper {i}, processing data...")
-                
-    #             for line in response.data:
-    #                 k, p1, p2 = line.strip().split(" ")
-    #                 if k not in sorted_partitions:
-    #                     sorted_partitions[k] = []
-    #                 sorted_partitions[k].append([float(p1), float(p2)])
-                    
-    #             print(f"Data processed for mapper {i}")
-
-    #         except grpc.RpcError as e:
-    #             print(f"RPC error encountered with mapper {i} on port {port}: {e}")
-    #         except Exception as e:
-    #             print(f"Exception encountered with mapper {i}: {e}")
-    #         finally:
-    #             if channel:
-    #                 channel.close()
-    #                 print(f"Channel to mapper {i} on port {port} closed.")
-
-    #     print("Shuffling and sorting complete.")
-    #     return sorted_partitions
-
     def shuffle_and_sort(self, file_id, num_mappers):
+        print("Entering function")
         sorted_partitions = {}
-
+        
         for i in num_mappers:
-            partition_file = os.path.join(f"map_output_{i}", f"partition_{file_id}.txt")
-            with open(partition_file, "r") as f:
-                for line in f:
+            port = 4001 + i
+            channel = None
+            try:
+                print(f"Connecting to mapper on port: {port}")
+                channel = grpc.insecure_channel(f'localhost:{port}')
+                stub = worker_grpc.WorkerStub(channel)
+                reducer_id = int(file_id)
+                response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=reducer_id))
+                print(f"Connection established with mapper {i}, processing data...")
+                
+                for line in response.data:
                     k, p1, p2 = line.strip().split(" ")
                     if k not in sorted_partitions:
                         sorted_partitions[k] = []
                     sorted_partitions[k].append([float(p1), float(p2)])
+                    
+                print(f"Data processed for mapper {i}")
 
+            except grpc.RpcError as e:
+                print(f"RPC error encountered with mapper {i} on port {port}: {e}")
+            except Exception as e:
+                print(f"Exception encountered with mapper {i}: {e}")
+            finally:
+                if channel:
+                    channel.close()
+                    print(f"Channel to mapper {i} on port {port} closed.")
+
+        print("Shuffling and sorting complete.")
         return sorted_partitions
 
     def calculate_centroid(self, clusters):
@@ -178,9 +174,9 @@ def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
-    # if port == '4007':
-    #     global p_red
-    #     p_red = 0
+    if port == '4002':
+        global p_map
+        p_map = 0
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()
     print("Worker running on 127.0.0.1:%s" % (port))
