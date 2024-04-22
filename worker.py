@@ -113,7 +113,7 @@ class Worker(worker_grpc.WorkerServicer):
                 stub = worker_grpc.WorkerStub(channel)
                 reducer_id = int(file_id)
                 response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=reducer_id))
-                print(f"Connection established with mapper {i}, processing data...")
+                print(f"RPC Connection established with mapper {i} from reducer, processing data...")
                 
                 for line in response.data:
                     k, p1, p2 = line.strip().split(" ")
@@ -132,7 +132,7 @@ class Worker(worker_grpc.WorkerServicer):
                     channel.close()
                     print(f"Channel to mapper {i} on port {port} closed.")
 
-        print("Shuffling and sorting complete.")
+        print("SUCCESS [MAPPER TO REDUCER] Shuffling and sorting complete.")
         return sorted_partitions
 
     def calculate_centroid(self, clusters):
