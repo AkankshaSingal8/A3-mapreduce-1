@@ -40,8 +40,17 @@ class Driver(driver_grpc.DriverServicer):
             centroids_list = self.centroids.flatten().astype(float).tolist()
             r = worker.kmeansInput(path=file, mapID=mid, numClusters=num_clusters, centroids=centroids_list, numReducers=num_reds)
             r = self.mappers[key][1].map(r)
+            if r.code != 200:
+                print(f"[-] [DRIVER] [MAP] Map operation '{mid}' failed on worker '{key}'. Retrying with another mapper...")
+                new_mapper = get_mapper()
+                if new_mapper:
+                    print(f"[*] [DRIVER] [MAP] Retrying map operation '{mid}' on worker '{new_mapper}'...")
+                    return map_kmeans(new_mapper, file, mid, num_clusters, num_reds)
+                else:
+                    print(f"[-] [DRIVER] [MAP] No available mapper to retry map operation '{mid}'.")
+            else:
+                print(f"[!] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' terminated with code: '{r.code}' and message: {r.msg}.")
             self.mappers[key][0] = 0
-            print(f"[!] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' terminated with code: '{r.code}' and message: {r.msg}.")
             return r
 
         def reduce_kmeans(key, rid, num_files):
@@ -49,9 +58,18 @@ class Driver(driver_grpc.DriverServicer):
             self.reducers[key][0] = 1
             r = worker.kmeansReduce(id=rid, mapNums=num_files)
             r = self.reducers[key][1].reduce(r)
+            if r.code != 200:
+                print(f"[-] [DRIVER] [MAP] Reduce operation '{rid}' failed on worker '{key}'. Retrying with another reducer...")
+                new_reducer = get_reducer()
+                if new_reducer:
+                    print(f"[*] [DRIVER] [MAP] Retrying reduce operation '{rid}' on worker '{new_reducer}'...")
+                    return reduce_kmeans(new_reducer, rid, num_files)
+                else:
+                    print(f"[-] [DRIVER] [MAP] No available reducer to retry reduce operation '{rid}'.")
+            else:
+                print(f"[!] [DRIVER] [REDUCE] Reduce operation '{rid}' terminated with code: '{r.code}' and centroids: {r.msg}.")
             self.reducers[key][0] = 0
             self.updates.append(eval(r.msg))
-            print(f"[!] [DRIVER] [REDUCE] Reduce operation '{rid}' terminated with code: '{r.code}' and centroids: {r.msg}.")
             return r
 
         def get_mapper():
@@ -81,6 +99,7 @@ class Driver(driver_grpc.DriverServicer):
 
         for port in ports[:mappers]:
             pyautogui.hotkey('ctrl', 'shift', '~')
+            time.sleep(1)
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
             print(f"[*] [DRIVER] [CONFIG] Connecting to mapper with port: {port}...")
@@ -94,6 +113,7 @@ class Driver(driver_grpc.DriverServicer):
         
         for port in ports[mappers:]:
             pyautogui.hotkey('ctrl', 'shift', '~')
+            time.sleep(1)
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
             channel = grpc.insecure_channel(f'localhost:{port}')
             print(f"[*] [DRIVER] [CONFIG] Connecting to reducer with port: {port}...")
@@ -109,6 +129,7 @@ class Driver(driver_grpc.DriverServicer):
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
         initialize_centroids(num_clusters)
 
+        same = 0
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
             start_time = time.time()
@@ -125,9 +146,16 @@ class Driver(driver_grpc.DriverServicer):
                     means[key] = [sum(val)/counts[key] for val in zip(*value)]
                 
                 self.updates = []
-                self.centroids = list(means.values())
-                self.centroids = np.array(self.centroids)
-
+                temp_centroids = list(means.values())
+                temp_centroids = np.array(temp_centroids)
+                
+                if np.array_equal(self.centroids, temp_centroids):
+                    same += 1
+                if np.array_equal(self.centroids, temp_centroids) and same == 2:
+                    print(f"[!] [DRIVER] [KMEANS] Centroids converged. Terminating the algorithm.")
+                    break
+                
+                self.centroids = temp_centroids
                 print(f"[!] [DRIVER] [KMEANS] Updated centroids: {self.centroids}")
                 with open("centroids.txt", "w") as f:
                     f.write(str(self.centroids))
@@ -135,7 +163,6 @@ class Driver(driver_grpc.DriverServicer):
             # Dispatch map tasks
             with futures.ThreadPoolExecutor() as executor:
                 for idx, file in enumerate(files):
-                    print(f"[*] [DRIVER] [KMEANS] Launching map operation '{idx}' on the file '{file}'...")
                     tmp_worker = get_mapper()
                     while tmp_worker is False:
                         print(f"[!] [DRIVER] [KMEANS] Map operation '{idx}' is paused due to all workers being occupied.")
@@ -144,6 +171,7 @@ class Driver(driver_grpc.DriverServicer):
                     print(f"[!] [DRIVER] [KMEANS] Launching map operation '{idx}' on the file '{file}' started.")
                     executor.submit(map_kmeans, key=tmp_worker, file=file, mid=idx, num_clusters=num_clusters, num_reds=reducers)
             
+            executor.shutdown(wait=True)
             print(f"[!] [DRIVER] [KMEANS] Map phase terminated in '{time.time() - start_time}' second(s).")
 
             start_time = time.time()
@@ -156,8 +184,9 @@ class Driver(driver_grpc.DriverServicer):
                         print(f"[!] [DRIVER] [KMEANS] Reduce operation '{idx}' is paused due to all workers being occupied.")
                         time.sleep(5)
                         tmp_worker = get_reducer()
-                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=len(files))
+                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=mappers)
             
+            executor.shutdown(wait=True)
             print(f"[!] [DRIVER] [KMEANS] Reduce phase terminated in '{time.time() - start_time}' second(s).")
         
         for port, (stat, stub) in self.mappers.items():
