@@ -9,6 +9,9 @@ import threading
 import worker_pb2 as worker
 import worker_pb2_grpc as worker_grpc
 
+p_red = 1
+p_map = 1
+
 class Worker(worker_grpc.WorkerServicer):
     def __init__(self):
         super().__init__()
@@ -75,6 +78,8 @@ class Worker(worker_grpc.WorkerServicer):
             clusters[nearest_centroid].append([list(centroids[nearest_centroid]), point])
 
         self.partition(clusters, num_reducers, request.mapID)
+        if p_map == 0:
+            return worker.status(code=404, msg="FAIL")
         return worker.status(code=200, msg="OK")
 
     def shuffle_and_sort(self, file_id, num_mappers):
@@ -122,13 +127,17 @@ class Worker(worker_grpc.WorkerServicer):
             output_file = os.path.join(reduce_dir, f"output_{key}.txt")
             with open(output_file, "w") as f:
                 f.write(f"{key} {new_centroid}\n")
-
+        if p_red == 0:
+            return worker.status(code=404, msg="FAIL")
         return worker.status(code=200, msg=str(final_centroids))
 
 def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
+    if port == '4001':
+        global p_red
+        p_red = 0
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()
     print("Worker running on 127.0.0.1:%s" % (port))
