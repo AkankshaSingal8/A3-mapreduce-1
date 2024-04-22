@@ -8,6 +8,7 @@ service Worker {
     rpc map(kmeansInput) returns (status);
     rpc reduce (kmeansReduce) returns (status);
     rpc die (empty) returns (status);
+    rpc sendPartitionedData(PartitionRequest) returns (MapperData);
 }
 
 message empty {} // empty message
@@ -33,3 +34,13 @@ message kmeansInput {
 message driverPort {
     int32 port = 1;
 }
+
+message PartitionRequest {
+    int32 reducerID = 1;
+}
+
+message MapperData {
+    int32 reducerID = 1;       
+    string data = 2; 
+}
+
