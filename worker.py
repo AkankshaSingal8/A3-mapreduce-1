@@ -18,7 +18,7 @@ class Worker(worker_grpc.WorkerServicer):
     def __init__(self):
         super().__init__()
         self.driver_port = '4000'
-        self.patition_dict = {}
+        self.partition_dict = {}
         self.number_mappers = None
         self.number_reducers = None
         self.mapper_ports = []
@@ -32,6 +32,16 @@ class Worker(worker_grpc.WorkerServicer):
 
     def die(self, request, context):
         return worker.empty()
+    
+    def sendPartitionedData(self, request, context):
+        print("sending data")
+        reducer_id = request.reducerID
+        print("Reducer ID", reducer_id, "partition dict", self.partition_dict)
+        data = self.partition_dict[reducer_id]
+        mapper_data = worker.MapperDataList(data=data)
+        print("Data sent")
+        return mapper_data
+
 
     def partition(self, clusters, num_reducers, map_id):
         print("[!] [MAPPER] Partitioning clusters...")
@@ -57,12 +67,13 @@ class Worker(worker_grpc.WorkerServicer):
             
 
         for partition_id, partition_data in partitions.items():
+            print("WRITINg partition")
             self.partition_dict[partition_id] = partition_data
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
             with open(partition_file, "w") as f:
                 for value in partition_data:
                     f.write(f"{value}\n")
-
+        print(self.partition_dict)
         return partitions
 
     def map(self, request, context):
@@ -107,20 +118,40 @@ class Worker(worker_grpc.WorkerServicer):
     #     return sorted_partitions
 
     def shuffle_and_sort(self, file_id, num_mappers):
+        print("Entering function")
         sorted_partitions = {}
-
+        
         for i in range(1, num_mappers + 1):
-            port = 400 + i
-            channel = grpc.insecure_channel(f'localhost:{port}')
-            stub = worker_grpc.WorkerStub(channel)
-            response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=file_id))
-            for line in response:
-                k, p1, p2 = line.strip().split(" ")
-                if k not in sorted_partitions:
-                    sorted_partitions[k] = []
-                sorted_partitions[k].append([float(p1), float(p2)])
+            port = 4000 + i
+            channel = None
+            try:
+                print(f"Connecting to mapper on port: {port}")
+                channel = grpc.insecure_channel(f'localhost:{port}')
+                stub = worker_grpc.WorkerStub(channel)
+                reducer_id = int(file_id)
+                response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=reducer_id))
+                print(f"Connection established with mapper {i}, processing data...")
+                
+                for line in response.data:
+                    k, p1, p2 = line.strip().split(" ")
+                    if k not in sorted_partitions:
+                        sorted_partitions[k] = []
+                    sorted_partitions[k].append([float(p1), float(p2)])
+                    
+                print(f"Data processed for mapper {i}")
 
+            except grpc.RpcError as e:
+                print(f"RPC error encountered with mapper {i} on port {port}: {e}")
+            except Exception as e:
+                print(f"Exception encountered with mapper {i}: {e}")
+            finally:
+                if channel:
+                    channel.close()
+                    print(f"Channel to mapper {i} on port {port} closed.")
+
+        print("Shuffling and sorting complete.")
         return sorted_partitions
+
 
 
     def calculate_centroid(self, clusters):
@@ -159,11 +190,11 @@ class Worker(worker_grpc.WorkerServicer):
         return worker.status(code=200, msg=str(final_centroids))
 
 def server():
+    global p_red
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
     if port == '4001':
-        global p_red
         p_red = 0
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()

@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0cworker.proto\x12\rworkerPackage\"\x07\n\x05\x65mpty\"+\n\x0ckmeansReduce\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x0f\n\x07mapNums\x18\x02 \x01(\x05\"#\n\x06status\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0b\n\x03msg\x18\x02 \x01(\t\"g\n\x0bkmeansInput\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\r\n\x05mapID\x18\x02 \x01(\x05\x12\x13\n\x0bnumClusters\x18\x03 \x01(\x05\x12\x11\n\tcentroids\x18\x04 \x03(\x02\x12\x13\n\x0bnumReducers\x18\x05 \x01(\x05\"\x1a\n\ndriverPort\x12\x0c\n\x04port\x18\x01 \x01(\x05\"%\n\x10PartitionRequest\x12\x11\n\treducerID\x18\x01 \x01(\x05\"-\n\nMapperData\x12\x11\n\treducerID\x18\x01 \x01(\x05\x12\x0c\n\x04\x64\x61ta\x18\x02 \x01(\t2\xca\x02\n\x06Worker\x12\x41\n\rsetDriverPort\x12\x19.workerPackage.driverPort\x1a\x15.workerPackage.status\x12\x38\n\x03map\x12\x1a.workerPackage.kmeansInput\x1a\x15.workerPackage.status\x12<\n\x06reduce\x12\x1b.workerPackage.kmeansReduce\x1a\x15.workerPackage.status\x12\x32\n\x03\x64ie\x12\x14.workerPackage.empty\x1a\x15.workerPackage.status\x12Q\n\x13sendPartitionedData\x12\x1f.workerPackage.PartitionRequest\x1a\x19.workerPackage.MapperDatab\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0cworker.proto\x12\rworkerPackage\"\x07\n\x05\x65mpty\"+\n\x0ckmeansReduce\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x0f\n\x07mapNums\x18\x02 \x01(\x05\"#\n\x06status\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0b\n\x03msg\x18\x02 \x01(\t\"g\n\x0bkmeansInput\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\r\n\x05mapID\x18\x02 \x01(\x05\x12\x13\n\x0bnumClusters\x18\x03 \x01(\x05\x12\x11\n\tcentroids\x18\x04 \x03(\x02\x12\x13\n\x0bnumReducers\x18\x05 \x01(\x05\"\x1a\n\ndriverPort\x12\x0c\n\x04port\x18\x01 \x01(\x05\"%\n\x10PartitionRequest\x12\x11\n\treducerID\x18\x01 \x01(\x05\"-\n\nMapperData\x12\x11\n\treducerID\x18\x01 \x01(\x05\x12\x0c\n\x04\x64\x61ta\x18\x02 \x01(\t\"\x1e\n\x0eMapperDataList\x12\x0c\n\x04\x64\x61ta\x18\x01 \x03(\t2\xce\x02\n\x06Worker\x12\x41\n\rsetDriverPort\x12\x19.workerPackage.driverPort\x1a\x15.workerPackage.status\x12\x38\n\x03map\x12\x1a.workerPackage.kmeansInput\x1a\x15.workerPackage.status\x12<\n\x06reduce\x12\x1b.workerPackage.kmeansReduce\x1a\x15.workerPackage.status\x12\x32\n\x03\x64ie\x12\x14.workerPackage.empty\x1a\x15.workerPackage.status\x12U\n\x13sendPartitionedData\x12\x1f.workerPackage.PartitionRequest\x1a\x1d.workerPackage.MapperDataListb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,6 +35,8 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_PARTITIONREQUEST']._serialized_end=292
   _globals['_MAPPERDATA']._serialized_start=294
   _globals['_MAPPERDATA']._serialized_end=339
-  _globals['_WORKER']._serialized_start=342
-  _globals['_WORKER']._serialized_end=672
+  _globals['_MAPPERDATALIST']._serialized_start=341
+  _globals['_MAPPERDATALIST']._serialized_end=371
+  _globals['_WORKER']._serialized_start=374
+  _globals['_WORKER']._serialized_end=708
 # @@protoc_insertion_point(module_scope)

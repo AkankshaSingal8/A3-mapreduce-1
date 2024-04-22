@@ -37,7 +37,7 @@ class WorkerStub(object):
         self.sendPartitionedData = channel.unary_unary(
                 '/workerPackage.Worker/sendPartitionedData',
                 request_serializer=worker__pb2.PartitionRequest.SerializeToString,
-                response_deserializer=worker__pb2.MapperData.FromString,
+                response_deserializer=worker__pb2.MapperDataList.FromString,
                 )
 
 
@@ -100,7 +100,7 @@ def add_WorkerServicer_to_server(servicer, server):
             'sendPartitionedData': grpc.unary_unary_rpc_method_handler(
                     servicer.sendPartitionedData,
                     request_deserializer=worker__pb2.PartitionRequest.FromString,
-                    response_serializer=worker__pb2.MapperData.SerializeToString,
+                    response_serializer=worker__pb2.MapperDataList.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -193,6 +193,6 @@ class Worker(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/workerPackage.Worker/sendPartitionedData',
             worker__pb2.PartitionRequest.SerializeToString,
-            worker__pb2.MapperData.FromString,
+            worker__pb2.MapperDataList.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
