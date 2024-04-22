@@ -184,7 +184,7 @@ class Driver(driver_grpc.DriverServicer):
                         print(f"[!] [DRIVER] [KMEANS] Reduce operation '{idx}' is paused due to all workers being occupied.")
                         time.sleep(5)
                         tmp_worker = get_reducer()
-                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=len(files))
+                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=mappers)
             
             executor.shutdown(wait=True)
             print(f"[!] [DRIVER] [KMEANS] Reduce phase terminated in '{time.time() - start_time}' second(s).")
