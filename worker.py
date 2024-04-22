@@ -53,11 +53,11 @@ class Worker(worker_grpc.WorkerServicer):
 
                 if partition_counts[partition_id] >= points_per_partition:
                     partition_id = (partition_id + 1) % num_reducers
-                if partition_id not in self.patition_dict:
-                    self.patition_dict[partition_id] = []
-                self.patition_dict[partition_id].append(val)
+                
+            
 
         for partition_id, partition_data in partitions.items():
+            self.partition_dict[partition_id] = partition_data
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
             with open(partition_file, "w") as f:
                 for value in partition_data:
@@ -92,19 +92,36 @@ class Worker(worker_grpc.WorkerServicer):
             return worker.status(code=404, msg="FAIL")
         return worker.status(code=200, msg="OK")
 
+    # def shuffle_and_sort(self, file_id, num_mappers):
+    #     sorted_partitions = {}
+
+    #     for i in range(num_mappers):
+    #         partition_file = os.path.join(f"map_output_{i}", f"partition_{file_id}.txt")
+    #         with open(partition_file, "r") as f:
+    #             for line in f:
+    #                 k, p1, p2 = line.strip().split(" ")
+    #                 if k not in sorted_partitions:
+    #                     sorted_partitions[k] = []
+    #                 sorted_partitions[k].append([float(p1), float(p2)])
+
+    #     return sorted_partitions
+
     def shuffle_and_sort(self, file_id, num_mappers):
         sorted_partitions = {}
 
-        for i in range(num_mappers):
-            partition_file = os.path.join(f"map_output_{i}", f"partition_{file_id}.txt")
-            with open(partition_file, "r") as f:
-                for line in f:
-                    k, p1, p2 = line.strip().split(" ")
-                    if k not in sorted_partitions:
-                        sorted_partitions[k] = []
-                    sorted_partitions[k].append([float(p1), float(p2)])
+        for i in range(1, num_mappers + 1):
+            port = 400 + i
+            channel = grpc.insecure_channel(f'localhost:{port}')
+            stub = worker_grpc.WorkerStub(channel)
+            response = stub.sendPartitionedData(worker.PartitionRequest(reducerID=file_id))
+            for line in response:
+                k, p1, p2 = line.strip().split(" ")
+                if k not in sorted_partitions:
+                    sorted_partitions[k] = []
+                sorted_partitions[k].append([float(p1), float(p2)])
 
         return sorted_partitions
+
 
     def calculate_centroid(self, clusters):
         final_centroids = {}
