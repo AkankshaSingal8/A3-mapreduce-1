@@ -12,13 +12,17 @@ import worker_pb2_grpc as worker_grpc
 p_red = 1
 p_map = 1
 
-mapper_ports = []
-reducer_ports = []
+
 
 class Worker(worker_grpc.WorkerServicer):
     def __init__(self):
         super().__init__()
         self.driver_port = '4000'
+        self.patition_dict = {}
+        self.number_mappers = None
+        self.number_reducers = None
+        self.mapper_ports = []
+        self.reducer_ports = []
 
     def setDriverPort(self, request, context):
         print("Old driver port", self.driver_port)
@@ -49,6 +53,9 @@ class Worker(worker_grpc.WorkerServicer):
 
                 if partition_counts[partition_id] >= points_per_partition:
                     partition_id = (partition_id + 1) % num_reducers
+                if partition_id not in self.patition_dict:
+                    self.patition_dict[partition_id] = []
+                self.patition_dict[partition_id].append(val)
 
         for partition_id, partition_data in partitions.items():
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
@@ -135,8 +142,6 @@ class Worker(worker_grpc.WorkerServicer):
         return worker.status(code=200, msg=str(final_centroids))
 
 def server():
-    global mapper_ports
-    global reducer_ports
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
