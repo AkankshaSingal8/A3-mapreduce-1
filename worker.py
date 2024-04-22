@@ -12,8 +12,6 @@ import worker_pb2_grpc as worker_grpc
 p_red = 1
 p_map = 1
 
-
-
 class Worker(worker_grpc.WorkerServicer):
     def __init__(self):
         super().__init__()
@@ -59,13 +57,15 @@ class Worker(worker_grpc.WorkerServicer):
 
         for partition_id, partition_data in partitions.items():
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
-            with open(partition_file, "w") as f:
+            with open(partition_file, "a+") as f:
                 for value in partition_data:
                     f.write(f"{value}\n")
 
         return partitions
 
     def map(self, request, context):
+        if p_map == 0:
+            return worker.status(code=404, msg="FAIL")
         file = request.path
         num_clusters = request.numClusters
         num_reducers = request.numReducers
@@ -88,14 +88,12 @@ class Worker(worker_grpc.WorkerServicer):
             clusters[nearest_centroid].append([list(centroids[nearest_centroid]), point])
 
         self.partition(clusters, num_reducers, request.mapID)
-        if p_map == 0:
-            return worker.status(code=404, msg="FAIL")
         return worker.status(code=200, msg="OK")
 
     def shuffle_and_sort(self, file_id, num_mappers):
         sorted_partitions = {}
 
-        for i in range(num_mappers):
+        for i in num_mappers:
             partition_file = os.path.join(f"map_output_{i}", f"partition_{file_id}.txt")
             with open(partition_file, "r") as f:
                 for line in f:
@@ -122,9 +120,11 @@ class Worker(worker_grpc.WorkerServicer):
         return final_centroids
 
     def reduce(self, request, context):
+        if p_red == 0:
+            return worker.status(code=404, msg="FAIL")
         print("[!] [REDUCER] K-means Reduce operation")
         rid = request.id
-        numMaps = request.mapNums
+        numMaps = request.mapIDs
 
         print("[!] [REDUCER] Shuffling and Sorting...")
         sorted_part = self.shuffle_and_sort(rid, numMaps)
@@ -135,19 +135,17 @@ class Worker(worker_grpc.WorkerServicer):
 
         for key, new_centroid in final_centroids.items():
             output_file = os.path.join(reduce_dir, f"output_{key}.txt")
-            with open(output_file, "w") as f:
+            with open(output_file, "a+") as f:
                 f.write(f"{key} {new_centroid}\n")
-        if p_red == 0:
-            return worker.status(code=404, msg="FAIL")
         return worker.status(code=200, msg=str(final_centroids))
 
 def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
-    if port == '4001':
-        global p_red
-        p_red = 0
+    # if port == '4007':
+    #     global p_red
+    #     p_red = 0
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()
     print("Worker running on 127.0.0.1:%s" % (port))

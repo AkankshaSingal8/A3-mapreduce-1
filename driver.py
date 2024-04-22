@@ -1,3 +1,4 @@
+import os
 import sys
 import grpc
 import glob
@@ -22,6 +23,8 @@ class Driver(driver_grpc.DriverServicer):
         self.centroids = []
         self.treatFiles = dict()
         self.updates = []
+        self.nextMapper = 0
+        self.nextReducer = 0
     
     def launchDriver(self, request, context):
         def initialize_centroids(num_clusters):
@@ -38,7 +41,7 @@ class Driver(driver_grpc.DriverServicer):
             print(f"[*] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' is sent to worker '{key}'...")
             self.mappers[key][0] = 1
             centroids_list = self.centroids.flatten().astype(float).tolist()
-            r = worker.kmeansInput(path=file, mapID=mid, numClusters=num_clusters, centroids=centroids_list, numReducers=num_reds)
+            r = worker.kmeansInput(path=file, mapID=int((str(key))[-1]) - 1, numClusters=num_clusters, centroids=centroids_list, numReducers=num_reds)
             r = self.mappers[key][1].map(r)
             if r.code != 200:
                 print(f"[-] [DRIVER] [MAP] Map operation '{mid}' failed on worker '{key}'. Retrying with another mapper...")
@@ -56,7 +59,7 @@ class Driver(driver_grpc.DriverServicer):
         def reduce_kmeans(key, rid, num_files):
             print(f"[*] [DRIVER] [REDUCE] Reduce operation '{rid}' is sent to worker '{key}'...")
             self.reducers[key][0] = 1
-            r = worker.kmeansReduce(id=rid, mapNums=num_files)
+            r = worker.kmeansReduce(id=int((str(key))[-1]) - 1 - mappers, mapIDs=num_files)
             r = self.reducers[key][1].reduce(r)
             if r.code != 200:
                 print(f"[-] [DRIVER] [MAP] Reduce operation '{rid}' failed on worker '{key}'. Retrying with another reducer...")
@@ -78,11 +81,23 @@ class Driver(driver_grpc.DriverServicer):
                     return k
             return False
         
+        def get_active_mapper():
+            active_mapper = []
+            for k, v in self.mappers.items():
+                if v[0] == 0:
+                    active_mapper.append(int((str(k))[-1]) - 1)
+            return active_mapper
+        
         def get_reducer():
             for k, v in self.reducers.items():
                 if v[0] == 0:
                     return k
             return False
+
+        def delete_files(directory):
+            files = glob.glob(directory + "/*.txt")
+            for f in files:
+                os.remove(f)
         
         print("[!] [DRIVER] [CONFIG] Driver is launching")
         files = glob.glob(request.dirPath + "/*.txt")
@@ -97,33 +112,35 @@ class Driver(driver_grpc.DriverServicer):
         for file in files:
             self.treatFiles[file] = 0
 
+        def connect_to_worker(port, is_mapper):
+            worker_type = "mapper" if is_mapper else "reducer"
+            try:
+                channel = grpc.insecure_channel(f'localhost:{port}')
+                grpc.channel_ready_future(channel).result(timeout=10)
+            except grpc.FutureTimeoutError:
+                print(f"[-] [ERROR] Could not connect to {worker_type} '{port}'.")
+                return None
+            else:
+                print(f"[!] [DRIVER] [CONFIG] Connection with {worker_type} '{port}' established.")
+                return channel
+        
         for port in ports[:mappers]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             time.sleep(1)
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
-            channel = grpc.insecure_channel(f'localhost:{port}')
-            print(f"[*] [DRIVER] [CONFIG] Connecting to mapper with port: {port}...")
-            try:
-                grpc.channel_ready_future(channel).result(timeout=10)
-            except grpc.FutureTimeoutError:
-                sys.exit(f"[-] [ERROR] Could not connect to mapper '{port}'.")
-            self.mappers[port] = [0, worker_grpc.WorkerStub(channel)]
-            self.mappers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
-            print(f"[!] [DRIVER] [CONFIG] Connection with mapper '{port}' established.")
-        
+            channel = connect_to_worker(port, is_mapper=True)
+            if channel:
+                self.mappers[port] = [0, worker_grpc.WorkerStub(channel)]
+                self.mappers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
+
         for port in ports[mappers:]:
             pyautogui.hotkey('ctrl', 'shift', '~')
             time.sleep(1)
             pyautogui.typewrite(f"python worker.py {port}" + '\n')
-            channel = grpc.insecure_channel(f'localhost:{port}')
-            print(f"[*] [DRIVER] [CONFIG] Connecting to reducer with port: {port}...")
-            try:
-                grpc.channel_ready_future(channel).result(timeout=10)
-            except grpc.FutureTimeoutError:
-                sys.exit(f"[-] [ERROR] Could not connect to reducer '{port}'.")
-            self.reducers[port] = [0, worker_grpc.WorkerStub(channel)]
-            self.reducers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
-            print(f"[!] [DRIVER] [CONFIG] Connection with reducer '{port}' established.")
+            channel = connect_to_worker(port, is_mapper=False)
+            if channel:
+                self.reducers[port] = [0, worker_grpc.WorkerStub(channel)]
+                self.reducers[port][1].setDriverPort(worker.driverPort(port=int(sys.argv[1])))
 
         print("[!] [DRIVER] [CONFIG]  Registered: %i map operations and %i reduce operations" % (mappers, reducers))
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
@@ -133,6 +150,7 @@ class Driver(driver_grpc.DriverServicer):
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
             start_time = time.time()
+            
             if i != 0:
                 sums = defaultdict(list)
                 counts = defaultdict(int)
@@ -160,10 +178,15 @@ class Driver(driver_grpc.DriverServicer):
                 with open("centroids.txt", "w") as f:
                     f.write(str(self.centroids))
             
+            if i != self.iterations - 1:
+                delete_files("./map_output_*")
+                delete_files("./reduce_output_*")
+
             # Dispatch map tasks
             with futures.ThreadPoolExecutor() as executor:
                 for idx, file in enumerate(files):
-                    tmp_worker = get_mapper()
+                    tmp_worker = 4001 + self.nextMapper % mappers
+                    self.nextMapper += 1
                     while tmp_worker is False:
                         print(f"[!] [DRIVER] [KMEANS] Map operation '{idx}' is paused due to all workers being occupied.")
                         time.sleep(5)
@@ -179,12 +202,13 @@ class Driver(driver_grpc.DriverServicer):
             with futures.ThreadPoolExecutor() as executor:
                 for idx in range(reducers):
                     print(f"[*] [DRIVER] [KMEANS] Finding a worker for reduce operation '{idx}'...")
-                    tmp_worker = get_reducer()
+                    tmp_worker = 4001 + mappers + (self.nextReducer % reducers)
+                    self.nextReducer += 1
                     while tmp_worker is False:
                         print(f"[!] [DRIVER] [KMEANS] Reduce operation '{idx}' is paused due to all workers being occupied.")
                         time.sleep(5)
                         tmp_worker = get_reducer()
-                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=mappers)
+                    executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=get_active_mapper())
             
             executor.shutdown(wait=True)
             print(f"[!] [DRIVER] [KMEANS] Reduce phase terminated in '{time.time() - start_time}' second(s).")
