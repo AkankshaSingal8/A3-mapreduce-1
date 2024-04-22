@@ -34,7 +34,6 @@ class Worker(worker_grpc.WorkerServicer):
     def sendPartitionedData(self, request, context):
         print("Sending data")
         reducer_id = request.reducerID
-        print("Reducer ID", reducer_id, "Partition dict", self.partition_dict)
         data = self.partition_dict[reducer_id]
         mapper_data = worker.MapperDataList(data=data)
         print("Data sent")
@@ -174,9 +173,9 @@ def server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     worker_grpc.add_WorkerServicer_to_server(Worker(), server)
     port = sys.argv[1]
-    if port == '4002':
-        global p_map
-        p_map = 0
+    # if port == '4002':
+    #     global p_map
+    #     p_map = 0
     server.add_insecure_port("127.0.0.1:%s" % (port))
     server.start()
     print("Worker running on 127.0.0.1:%s" % (port))

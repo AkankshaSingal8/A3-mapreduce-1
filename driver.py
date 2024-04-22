@@ -39,38 +39,58 @@ class Driver(driver_grpc.DriverServicer):
 
         def map_kmeans(key, file, mid, num_clusters, num_reds):
             print(f"[*] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' is sent to worker '{key}'...")
-            self.mappers[key][0] = 1
-            centroids_list = self.centroids.flatten().astype(float).tolist()
-            r = worker.kmeansInput(path=file, mapID=int((str(key))[-1]) - 1, numClusters=num_clusters, centroids=centroids_list, numReducers=num_reds)
-            r = self.mappers[key][1].map(r)
-            if r.code != 200:
-                print(f"[-] [DRIVER] [MAP] Map operation '{mid}' failed on worker '{key}'. Retrying with another mapper...")
+            try:
+                self.mappers[key][0] = 1
+                centroids_list = self.centroids.flatten().astype(float).tolist()
+                r = worker.kmeansInput(path=file, mapID=int((str(key))[-1]) - 1, numClusters=num_clusters, centroids=centroids_list, numReducers=num_reds)
+                r = self.mappers[key][1].map(r)
+                if r.code != 200:
+                    print(f"[-] [DRIVER] [MAP] Map operation '{mid}' failed on worker '{key}'. Retrying with another mapper...")
+                    new_mapper = get_mapper()
+                    if new_mapper:
+                        print(f"[*] [DRIVER] [MAP] Retrying map operation '{mid}' on worker '{new_mapper}'...")
+                        return map_kmeans(new_mapper, file, mid, num_clusters, num_reds)
+                    else:
+                        print(f"[-] [DRIVER] [MAP] No available mapper to retry map operation '{mid}'.")
+                else:
+                    print(f"[!] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' terminated with code: '{r.code}' and message: {r.msg}.")
+            except Exception as e:
+                print(f"[-] [DRIVER] [MAP] Error occurred while sending map operation '{mid}' to worker '{key}': {str(e)}")
+                print(f"[-] [DRIVER] [MAP] Retrying map operation '{mid}' on another mapper...")
                 new_mapper = get_mapper()
                 if new_mapper:
                     print(f"[*] [DRIVER] [MAP] Retrying map operation '{mid}' on worker '{new_mapper}'...")
                     return map_kmeans(new_mapper, file, mid, num_clusters, num_reds)
                 else:
                     print(f"[-] [DRIVER] [MAP] No available mapper to retry map operation '{mid}'.")
-            else:
-                print(f"[!] [DRIVER] [MAP] Map operation '{mid}' on the file '{file}' terminated with code: '{r.code}' and message: {r.msg}.")
             self.mappers[key][0] = 0
             return r
 
         def reduce_kmeans(key, rid, num_files):
             print(f"[*] [DRIVER] [REDUCE] Reduce operation '{rid}' is sent to worker '{key}'...")
-            self.reducers[key][0] = 1
-            r = worker.kmeansReduce(id=int((str(key))[-1]) - 1 - mappers, mapIDs=num_files)
-            r = self.reducers[key][1].reduce(r)
-            if r.code != 200:
-                print(f"[-] [DRIVER] [MAP] Reduce operation '{rid}' failed on worker '{key}'. Retrying with another reducer...")
+            try:
+                self.reducers[key][0] = 1
+                r = worker.kmeansReduce(id=int((str(key))[-1]) - 1 - mappers, mapIDs=num_files)
+                r = self.reducers[key][1].reduce(r)
+                if r.code != 200:
+                    print(f"[-] [DRIVER] [MAP] Reduce operation '{rid}' failed on worker '{key}'. Retrying with another reducer...")
+                    new_reducer = get_reducer()
+                    if new_reducer:
+                        print(f"[*] [DRIVER] [MAP] Retrying reduce operation '{rid}' on worker '{new_reducer}'...")
+                        return reduce_kmeans(new_reducer, rid, num_files)
+                    else:
+                        print(f"[-] [DRIVER] [MAP] No available reducer to retry reduce operation '{rid}'.")
+                else:
+                    print(f"[!] [DRIVER] [REDUCE] Reduce operation '{rid}' terminated with code: '{r.code}' and centroids: {r.msg}.")
+            except Exception as e:
+                print(f"[-] [DRIVER] [REDUCE] Error occurred while sending reduce operation '{rid}' to worker '{key}': {str(e)}")
+                print(f"[-] [DRIVER] [REDUCE] Retrying reduce operation '{rid}' on another reducer...")
                 new_reducer = get_reducer()
                 if new_reducer:
-                    print(f"[*] [DRIVER] [MAP] Retrying reduce operation '{rid}' on worker '{new_reducer}'...")
+                    print(f"[*] [DRIVER] [REDUCE] Retrying reduce operation '{rid}' on worker '{new_reducer}'...")
                     return reduce_kmeans(new_reducer, rid, num_files)
                 else:
-                    print(f"[-] [DRIVER] [MAP] No available reducer to retry reduce operation '{rid}'.")
-            else:
-                print(f"[!] [DRIVER] [REDUCE] Reduce operation '{rid}' terminated with code: '{r.code}' and centroids: {r.msg}.")
+                    print(f"[-] [DRIVER] [REDUCE] No available reducer to retry reduce operation '{rid}'.")
             self.reducers[key][0] = 0
             self.updates.append(eval(r.msg))
             return r
