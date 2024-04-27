@@ -52,13 +52,14 @@ class Worker(worker_grpc.WorkerServicer):
         partition_id = 0
 
         for cluster_id, cluster_data in clusters.items():
+            partition_id = cluster_id % num_reducers
             for point in cluster_data:
                 val = str(cluster_id) + " " + str(point[1][0]) + " " + str(point[1][1])
                 partitions[partition_id].append(val)
                 partition_counts[partition_id] += 1
 
-                if partition_counts[partition_id] >= points_per_partition:
-                    partition_id = (partition_id + 1) % num_reducers
+                # if partition_counts[partition_id] >= points_per_partition:
+                    # partition_id = (partition_id + 1) % num_reducers
                 
                 if partition_id not in self.partition_dict:
                     self.partition_dict[partition_id] = []
@@ -66,7 +67,7 @@ class Worker(worker_grpc.WorkerServicer):
 
         for partition_id, partition_data in partitions.items():
             partition_file = os.path.join(map_dir, f"partition_{partition_id}.txt")
-            with open(partition_file, "a+") as f:
+            with open(partition_file, "w") as f:
                 for value in partition_data:
                     f.write(f"{value}\n")
 
@@ -134,19 +135,29 @@ class Worker(worker_grpc.WorkerServicer):
         print("SUCCESS [MAPPER TO REDUCER] Shuffling and sorting complete.")
         return sorted_partitions
 
+    # def calculate_centroid(self, clusters):
+    #     final_centroids = {}
+    #     for key, points in clusters.items():
+    #         num_points = len(points)
+    #         if num_points == 0:
+    #             return None
+    #         centroid = [0] * len(points[0])
+    #         for point in points:
+    #             for i in range(len(point)):
+    #                 centroid[i] += point[i]
+    #         centroid = [x / num_points for x in centroid]
+    #         final_centroids[key] = centroid
+    #     print("[!] [REDUCER] New centroids: ", final_centroids)
+    #     return final_centroids
     def calculate_centroid(self, clusters):
         final_centroids = {}
         for key, points in clusters.items():
             num_points = len(points)
+            pts = np.array(points)
             if num_points == 0:
                 return None
-            centroid = [0] * len(points[0])
-            for point in points:
-                for i in range(len(point)):
-                    centroid[i] += point[i]
-            centroid = [x / num_points for x in centroid]
-            final_centroids[key] = centroid
-        print("[!] [REDUCER] New centroids: ", final_centroids)
+            final_centroids[key] = pts.mean(axis = 0).tolist()
+            print("[!] [REDUCER] New centroids: ", final_centroids)
         return final_centroids
 
     def reduce(self, request, context):
@@ -165,7 +176,7 @@ class Worker(worker_grpc.WorkerServicer):
 
         for key, new_centroid in final_centroids.items():
             output_file = os.path.join(reduce_dir, f"output_{key}.txt")
-            with open(output_file, "a+") as f:
+            with open(output_file, "w") as f:
                 f.write(f"{key} {new_centroid}\n")
         return worker.status(code=200, msg=str(final_centroids))
 

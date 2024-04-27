@@ -28,12 +28,23 @@ class Driver(driver_grpc.DriverServicer):
     
     def launchDriver(self, request, context):
         def initialize_centroids(num_clusters):
-            with open("./points/p1.txt", 'r') as file:
+            with open("./pts.txt", 'r') as file:
                 lines = file.readlines()
-            for line in lines[:num_clusters]:
-                centroid = [float(coord) for coord in line.strip().split(',')]
-                self.centroids.append(centroid)
-            self.centroids = np.array(self.centroids)            
+            pts = []
+            for line in lines:
+                pt = [float(coord) for coord in line.strip().split(',')]
+                pts.append(pt)
+            pts = np.array(pts)
+            ind = np.random.choice(np.arange(len(pts)), size = num_clusters)
+            self.centroids = pts[ind]
+            # with open("./points/p1.txt", 'r') as file:
+            #     lines = file.readlines()
+            # for line in lines[:num_clusters]:
+            #     centroid = [float(coord) for coord in line.strip().split(',')]
+            #     self.centroids.append(centroid)
+            # self.centroids = np.array(self.centroids)
+            self.centroids = np.array(sorted(np.array(self.centroids).tolist()))
+            self.centroids = np.array([[-2000, -2000], [-500,-500], [0, 0], [500, 500], [2000, 2000]], dtype=np.float32)
             print("Initial Centroids:")
             print(self.centroids)
 
@@ -92,7 +103,10 @@ class Driver(driver_grpc.DriverServicer):
                 else:
                     print(f"[-] [DRIVER] [REDUCE] No available reducer to retry reduce operation '{rid}'.")
             self.reducers[key][0] = 0
-            self.updates.append(eval(r.msg))
+            temp = list(eval(r.msg).values())
+            # print(list(eval(r.msg).values()))
+            for i in temp:
+                self.updates.append(i)
             return r
 
         def get_mapper():
@@ -166,34 +180,23 @@ class Driver(driver_grpc.DriverServicer):
         print("[!] [DRIVER] [KMEANS] Initializing centroids...")
         initialize_centroids(num_clusters)
 
-        same = 0
         for i in range(self.iterations):
             print(f"[!] [DRIVER] [KMEANS] Starting iteration {i+1}/{self.iterations}")
             start_time = time.time()
             
             if i != 0:
-                sums = defaultdict(list)
-                counts = defaultdict(int)
-                for d in self.updates:
-                    for key, value in d.items():
-                        sums[key].append(value)
-                        counts[key] += 1
+                self.centroids = np.array(sorted(self.centroids.tolist()))
+                temp_centroids = np.array(sorted(np.array(self.updates).tolist()))
+                print(self.centroids)
+                print(self.updates)
+                diff = np.linalg.norm((self.centroids - temp_centroids))
 
-                means = {}
-                for key, value in sums.items():
-                    means[key] = [sum(val)/counts[key] for val in zip(*value)]
-                
-                self.updates = []
-                temp_centroids = list(means.values())
-                temp_centroids = np.array(temp_centroids)
-                
-                if np.array_equal(self.centroids, temp_centroids):
-                    same += 1
-                if np.array_equal(self.centroids, temp_centroids) and same == 2:
+                if diff <= 1.:
                     print(f"[!] [DRIVER] [KMEANS] Centroids converged. Terminating the algorithm.")
                     break
                 
                 self.centroids = temp_centroids
+                self.updates = []
                 print(f"[!] [DRIVER] [KMEANS] Updated centroids: {self.centroids}")
                 with open("centroids.txt", "w") as f:
                     f.write(str(self.centroids))
@@ -209,7 +212,7 @@ class Driver(driver_grpc.DriverServicer):
                     self.nextMapper += 1
                     while tmp_worker is False:
                         print(f"[!] [DRIVER] [KMEANS] Map operation '{idx}' is paused due to all workers being occupied.")
-                        time.sleep(5)
+                        # time.sleep(5)
                         tmp_worker = get_mapper()
                     print(f"[!] [DRIVER] [KMEANS] Launching map operation '{idx}' on the file '{file}' started.")
                     executor.submit(map_kmeans, key=tmp_worker, file=file, mid=idx, num_clusters=num_clusters, num_reds=reducers)
@@ -226,7 +229,7 @@ class Driver(driver_grpc.DriverServicer):
                     self.nextReducer += 1
                     while tmp_worker is False:
                         print(f"[!] [DRIVER] [KMEANS] Reduce operation '{idx}' is paused due to all workers being occupied.")
-                        time.sleep(5)
+                        # time.sleep(5)
                         tmp_worker = get_reducer()
                     executor.submit(reduce_kmeans, key=tmp_worker, rid=idx, num_files=get_active_mapper())
             
