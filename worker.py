@@ -50,6 +50,7 @@ class Worker(worker_grpc.WorkerServicer):
         total_points = sum(len(cluster_data) for cluster_data in clusters.values())
         points_per_partition = total_points // num_reducers
         partition_id = 0
+        clusters = sorted(clusters.items(), key=lambda x: x[0])
 
         for cluster_id, cluster_data in clusters.items():
             for point in cluster_data:
